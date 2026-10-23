@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Physician compensation vs hours worked</title>
+<style>
+:root{
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px);
+  padding-bottom:env(safe-area-inset-bottom,0px);
+  --bg:#ffffff; --panel:#f4f5f7; --text:#1f2933; --muted:#667085; --grid:#e3e6ea; --accent:#2a78d6;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){ --bg:#14181d; --panel:#1d232a; --text:#e8ecf0; --muted:#9aa5b1; --grid:#2c343d; --accent:#6fb1e0; }
+}
+:root[data-theme="dark"]{ --bg:#14181d; --panel:#1d232a; --text:#e8ecf0; --muted:#9aa5b1; --grid:#2c343d; --accent:#6fb1e0; }
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;line-height:1.45}
+main{max-width:1200px;margin:0 auto;padding:20px 14px 48px}
+h1{font-size:1.45rem;margin:0 0 4px;font-weight:600}
+.sub{color:var(--muted);font-size:.9rem;margin:0 0 16px}
+.controls{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;background:var(--panel);padding:12px 14px;border-radius:10px;margin-bottom:14px}
+.controls label{display:flex;flex-direction:column;font-size:.78rem;color:var(--muted);gap:4px}
+.controls select,.controls input{font-size:1rem;padding:7px 8px;border-radius:6px;border:1px solid var(--grid);background:var(--bg);color:var(--text);width:100%}
+.chartbox{position:relative;width:100%;height:68vh;min-height:420px}
+#leg{display:flex;flex-wrap:wrap;gap:6px 12px;margin:10px 0;font-size:.85rem;color:var(--muted)}
+#leg span{display:flex;align-items:center;gap:5px;cursor:pointer;padding:3px 6px;border-radius:6px;user-select:none}
+#leg span:hover{background:var(--panel)}
+#leg i{width:11px;height:11px;border-radius:3px;display:inline-block}
+#info{background:var(--panel);border-radius:10px;padding:12px 14px;font-size:.92rem;margin:8px 0 22px;min-height:88px}
+#info b{font-size:1.02rem}
+.g{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:2px 16px;margin-top:6px;color:var(--muted)}
+h2{font-size:1.05rem;margin:0 0 8px}
+.tablewrap{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:.85rem}
+th,td{padding:7px 10px;text-align:right;border-bottom:1px solid var(--grid);white-space:nowrap}
+th:nth-child(-n+2),td:nth-child(-n+2){text-align:left}
+th{cursor:pointer;color:var(--muted);position:sticky;top:0;background:var(--bg)}
+th.s{color:var(--accent)}
+tbody tr:hover td{background:var(--panel)}
+.note{font-size:.8rem;color:var(--muted);margin:12px 0}
+</style>
+</head>
+<body>
+<main>
+<h1>Physician compensation vs. hours worked</h1>
+<p class="sub">Hover or tap a point for details. Both axes start at 0. Tap a legend item to hide or show a group.</p>
+
+<div class="controls">
+  <label>X axis
+    <select id="xs"><option value="yr">Hours per year</option><option value="wk">Hours per week</option><option value="day">Hours per day</option></select>
+  </label>
+  <label>Y axis
+    <select id="ys"><option value="comp">Total pay ($K per year)</option><option value="hr">Pay per hour ($/hr)</option></select>
+  </label>
+  <label>Vacation weeks
+    <input type="number" id="vac" value="4" min="0" max="26" step="1">
+  </label>
+  <label>Work days per week
+    <input type="number" id="dpw" value="5" min="1" max="7" step="1">
+  </label>
+</div>
+
+<div class="chartbox"><canvas id="c" role="img" aria-label="Scatter chart of physician specialties: hours worked versus compensation, axes start at zero">Scatter chart of physician specialties by hours worked and compensation.</canvas></div>
+<div id="leg"></div>
+<div id="info">Tap a point to see pay, dollars per hour, and hours per year, week and day.</div>
+
+<h2>All specialties (click a header to sort)</h2>
+<div class="tablewrap"><table id="tbl"></table></div>
+<p class="note" id="assump"></p>
+<p class="note">Values were estimated visually from a chart based on Marit Health specialty averages (Oct 10, 2026, full-time US), so expect small errors. The source’s annual hours already reflect each specialty’s average PTO; weekly and daily hours here are recomputed from the vacation weeks and work days set above.</p>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script>
+const RAW=`Surg: cardiac,2614,1020
+NSGY,2664,1000
+Surg: CT,2647,950
+Ortho: spine,2374,903
+Ortho: recon,2417,912
+Ortho: sports,2332,841
+Ortho: trauma,2636,820
+Ortho,2297,809
+IM: EP,2565,786
+IM: IC,2547,775
+Ortho: foot/ankle,2422,760
+Ortho: hand,2237,734
+Plastics,2437,723
+Rads,1914,691
+IR,2099,680
+Rads: breast,1751,639
+Neurorads,1762,627
+Derm: Mohs,1955,662
+Rad onc,2131,649
+Rads: body,1984,593
+Urology,2349,649
+IM: cards,2382,636
+IM: HF/txp,2493,620
+Surg: vasc,2655,652
+OB/GYN: onc,2586,622
+IM: GI,2229,630
+IM: onc,2298,629
+IM: hem/onc,2280,594
+Anes: cards,2140,616
+OHNS/ENT,2191,610
+Ophtho: retina,2097,593
+Surg: bariatric,2523,611
+Surg: trauma,2532,594
+Anes: pain,2019,568
+Anes,2089,571
+Anes: peds,2125,577
+Ophtho,1923,551
+Derm,1821,538
+OB/GYN: MFM,2332,560
+Anes: CC,2305,555
+Surg: colorect,2595,522
+Surg: onc,2620,541
+Surg: unspecified,2614,506
+Surgery: gen,2483,499
+IM: IP,2503,512
+Ophtho: cornea,2066,517
+IM: pulm,2205,485
+IM: pulm/CC,2361,471
+OB/GYN: urogyne,2300,460
+Surg: breast,2326,455
+IM: CC,2027,469
+PMR: pain,1959,453
+EM,1738,441
+Neurol: vasc,2131,440
+Path,2135,410
+OB/GYN,2407,411
+Neurol: CC,2461,407
+Ophtho: glaucoma,2089,392
+Path: surgical,2139,387
+Peds: cards,2402,393
+FM: sports,2072,381
+Peds: neonat,2328,386
+IM: nephro,2241,387
+OB/GYN: gyn,2066,372
+Neurol,2125,372
+OB/GYN: hosp,2105,360
+Peds: CC,2356,358
+FM: hosp,2130,354
+Peds: GI,2097,346
+Psych,1952,350
+CAP,1908,338
+PMR,2059,345
+IM: all/imm,1946,343
+Urgent care,1943,337
+IM: hosp,2165,342
+Neurol: epilepsy,2149,340
+PMR: sports,2142,325
+IM,2031,327
+IM: rheum,1938,325
+FM,1997,316
+IM: geri,2006,314
+IM: endo,2048,315
+IM: ID,2323,319
+IM: palliative,2092,297
+Peds: neuro,2314,286
+Peds: pulm,2365,283
+Peds,1883,264
+Peds: hosp,2046,253
+Peds: EM,1756,327`;
+
+function grp(n){
+  if(/^(Surg|NSGY)/.test(n))return"Surgery";
+  if(/^Ortho/.test(n))return"Ortho";
+  if(/^IM/.test(n))return"Internal med";
+  if(/^(Rad|Neurorads|IR$)/.test(n))return"Radiology";
+  if(/^Derm/.test(n))return"Derm";
+  if(/^Anes/.test(n))return"Anesthesia";
+  if(/^Ophtho/.test(n))return"Ophtho";
+  if(/^OB/.test(n))return"OB/GYN";
+  if(/^Peds/.test(n))return"Peds";
+  if(/^Neurol/.test(n))return"Neurology";
+  if(/^Path/.test(n))return"Path";
+  if(/^FM/.test(n))return"Family med";
+  if(/^PMR/.test(n))return"PM&R";
+  if(/^(Psych|CAP|Urgent)/.test(n))return"Psych/UC";
+  if(/^EM$/.test(n))return"EM";
+  return"Other";
+}
+const COL={"Surgery":"#1baf7a","Ortho":"#008300","Internal med":"#2a78d6","Radiology":"#e34948","Derm":"#eb6834","Anesthesia":"#6250d6","Ophtho":"#898781","OB/GYN":"#e87ba4","Peds":"#a64db0","Neurology":"#7b8794","Path":"#d55181","Family med":"#c98500","PM&R":"#9a4a1c","Psych/UC":"#2aa8c8","EM":"#eda100","Other":"#c0a030"};
+const groups=Object.keys(COL);
+const D=RAW.split("\n").map(l=>{const p=l.split(",");return{n:p[0],g:grp(p[0]),yr:+p[1],comp:+p[2]*1000};});
+const $=id=>document.getElementById(id);
+const css=v=>getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+let W=48,P=5,chart=null,hidden={};
+
+function calc(){
+  const vac=Math.max(0,Math.min(51,+$("vac").value||0));
+  P=Math.max(1,Math.min(7,+$("dpw").value||5));
+  W=52-vac;
+  D.forEach(d=>{d.wk=d.yr/W;d.day=d.wk/P;d.hr=d.comp/d.yr;});
+  $("assump").textContent="Assumptions: "+vac+" vacation weeks gives "+W+" working weeks per year; "+P+" work days per week gives "+(W*P)+" work days per year. Hours/week = hours/year ÷ "+W+"; hours/day = hours/week ÷ "+P+"; $/hr = pay ÷ hours/year.";
+}
+const xv=d=>d[$("xs").value];
+const yv=d=>$("ys").value==="comp"?d.comp/1000:d.hr;
+
+function showInfo(d){
+  $("info").innerHTML="<b>"+d.n+"</b> <span style='color:var(--muted)'>("+d.g+")</span><div class='g'><span>Pay: $"+Math.round(d.comp/1000)+"K/yr</span><span>Per hour: $"+Math.round(d.hr)+"/hr</span><span>Hours/yr: "+Math.round(d.yr).toLocaleString("en-US")+"</span><span>Hours/wk: "+d.wk.toFixed(1)+"</span><span>Hours/day: "+d.day.toFixed(1)+"</span></div>";
+}
+
+function draw(){
+  calc();
+  const xk=$("xs").value, yk=$("ys").value;
+  const xmax={yr:2800,wk:60,day:12}[xk];
+  const ymax=yk==="comp"?1100:450;
+  const xt={yr:"Hours per year",wk:"Hours per week ("+W+" working weeks)",day:"Hours per day ("+P+" days/week, "+W+" weeks)"}[xk];
+  const yt=yk==="comp"?"Total pay ($K per year)":"Pay per hour ($/hr)";
+  const grid=css("--grid"), tc=css("--muted");
+  const datasets=groups.map(g=>({
+    label:g,backgroundColor:COL[g],borderColor:COL[g],pointRadius:5,pointHoverRadius:8,hidden:!!hidden[g],
+    data:D.filter(d=>d.g===g).map(d=>({x:xv(d),y:yv(d),d:d}))
+  }));
+  if(chart)chart.destroy();
+  chart=new Chart($("c"),{type:"scatter",data:{datasets:datasets},options:{
+    responsive:true,maintainAspectRatio:false,animation:false,
+    plugins:{legend:{display:false},tooltip:{callbacks:{
+      title:function(i){return i[0].raw.d.n;},
+      label:function(c){const d=c.raw.d;return["$"+Math.round(d.comp/1000)+"K/yr  ·  $"+Math.round(d.hr)+"/hr",Math.round(d.yr)+" h/yr  ·  "+d.wk.toFixed(1)+" h/wk  ·  "+d.day.toFixed(1)+" h/day"];}
+    }}},
+    onClick:function(e,els){if(els.length){const r=chart.data.datasets[els[0].datasetIndex].data[els[0].index];showInfo(r.d);}},
+    scales:{
+      x:{min:0,max:xmax,title:{display:true,text:xt,color:tc},grid:{color:grid},ticks:{color:tc}},
+      y:{min:0,max:ymax,title:{display:true,text:yt,color:tc},grid:{color:grid},ticks:{color:tc}}
+    }
+  }});
+  renderTable();
+}
+
+$("leg").innerHTML=groups.map(g=>"<span data-g=\""+g+"\"><i style=\"background:"+COL[g]+"\"></i>"+g+"</span>").join("");
+$("leg").querySelectorAll("span").forEach(s=>s.onclick=function(){
+  const g=s.dataset.g; hidden[g]=!hidden[g]; s.style.opacity=hidden[g]?0.35:1; draw();
+});
+
+let sk="comp",sd=-1;
+const COLS=[["n","Specialty",d=>d.n],["g","Group",d=>d.g],["comp","Pay ($/yr)",d=>"$"+Math.round(d.comp).toLocaleString("en-US")],["hr","$/hr",d=>"$"+Math.round(d.hr)],["yr","Hours/yr",d=>Math.round(d.yr).toLocaleString("en-US")],["wk","Hours/wk",d=>d.wk.toFixed(1)],["day","Hours/day",d=>d.day.toFixed(1)]];
+function renderTable(){
+  const rows=D.slice().sort(function(a,b){const x=a[sk],y=b[sk];return(typeof x==="string"?x.localeCompare(y):x-y)*sd;});
+  let h="<thead><tr>"+COLS.map(c=>"<th data-k=\""+c[0]+"\" class=\""+(c[0]===sk?"s":"")+"\">"+c[1]+(c[0]===sk?(sd>0?" ▲":" ▼"):"")+"</th>").join("")+"</tr></thead><tbody>";
+  rows.forEach(d=>{h+="<tr>"+COLS.map(c=>"<td>"+c[2](d)+"</td>").join("")+"</tr>";});
+  $("tbl").innerHTML=h+"</tbody>";
+  $("tbl").querySelectorAll("th").forEach(th=>th.onclick=function(){
+    const k=th.dataset.k;
+    if(k===sk)sd*=-1;else{sk=k;sd=(k==="n"||k==="g")?1:-1;}
+    renderTable();
+  });
+}
+
+["xs","ys","vac","dpw"].forEach(id=>$(id).addEventListener("input",draw));
+window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change",draw);
+draw();
+</script>
+</body>
+</html>
